@@ -189,7 +189,7 @@ IFS="$oldIFS"
 OS=$(get_operating_system)
 
 if [ -z "$ARGS" ]; then
-    echo "NO ARGS"
+    print_documentation
     exit -1
 fi
 

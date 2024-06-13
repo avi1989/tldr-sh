@@ -12,4 +12,4 @@ I have `/opt/bin` in my system path, so I can install it as follows
 ```
 
 # Dependencies
-TLDR attemptst to use [Glow](https://github.com/charmbracelet/glow) to render the output, if glow is not installed, it falls back to cat. I recommend installing glow for the best experience.
+TLDR attempts to use [Glow](https://github.com/charmbracelet/glow) to render the output, if glow is not installed, it falls back to cat. I recommend installing glow for the best experience.
