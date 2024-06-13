@@ -1,0 +1,217 @@
+#!/bin/bash
+TLDR_CONFIG_DIR="$HOME/.config/tldr"
+OS=""
+
+function get_latest_tldr_version() {
+    local VERSION=$(curl -Ls \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                https://api.github.com/repos/tldr-pages/tldr/releases/latest \
+                    | tr -d '\n' | \
+                    sed -E "s|.*['\"]tag_name['\"]: ['\"]?([A-Za-z0-9\-\. ]+)['\"]?.*|\1|g")
+
+    echo "$VERSION"
+}
+
+function initialize_if_needed()
+{
+    if [ -d $TLDR_CONFIG_DIR ]; then
+        return 0
+    fi
+
+    ZIP_FILE_PATH="$TMPDIR/tldr/tldr-pages.en.zip"
+
+    echo "Downloading the TLDR archive"
+
+    curl -s -L https://github.com/tldr-pages/tldr/releases/latest/download/tldr-pages.en.zip \
+        -o $ZIP_FILE_PATH
+
+    echo $ZIP_FILE_PATH
+    echo "Creating config directory at $TLDR_CONFIG_DIR"
+
+    mkdir -p "$TLDR_CONFIG_DIR"
+    unzip -qq "$ZIP_FILE_PATH" -d "$TLDR_CONFIG_DIR/"
+
+    local VERSION=$(get_latest_tldr_version)
+    echo "$VERSION" >> "$TLDR_CONFIG_DIR/version"
+
+    rm "$ZIP_FILE_PATH"
+}
+
+function get_operating_system()
+{
+    if [ -n "$OS" ]; then
+        echo "$OS"
+    fi
+
+    case "$OSTYPE" in
+        darwin*) echo "osx" ;;
+        linux-gnu*) echo "linux" ;;
+        cygwin) echo "linux" ;;
+        msys) echo "linux" ;;
+        win32) echo "windows" ;;
+        freebsd*) echo "bsd" ;;
+    esac
+}
+
+function update_tldr()
+{
+    local LOCAL_VERSION=$(cat "$TLDR_CONFIG_DIR/version")
+    echo $LOCAL_VERSION
+
+    local LATEST_VERSION=$(get_latest_tldr_version)
+
+    if [ "$LOCAL_VERSION" = "$LATEST_VERSION" ]; then
+        echo "The latest version of tldr is installed. No update needed"
+        return 0
+    else
+        echo "Updating TLDR to $LATEST_VERSION..."
+    fi
+
+    mv "$TLDR_CONFIG_DIR" "${TLDR_CONFIG_DIR}_bak"
+
+    initialize_if_needed
+
+    rm -rf "${TLDR_CONFIG_DIR}_bak"
+}
+
+function reset_tldr()
+{
+    echo "Reseting TLDR"
+    rm -rf "$TLDR_CONFIG_DIR"
+    initialize_if_needed
+}
+
+function get_command()
+{
+    if [ -n "$TLDR_COMMAND" ]; then
+        echo "$TLDR_COMMAND"
+        return 0
+    fi
+
+    if [ -x "$(command -v glow)" ]; then
+        echo "glow"
+    elif [ -x "$(command -v bat)" ]; then
+        echo "bat"
+    elif [ -x "$(command -v pygmentize)"]; then
+        echo "pygmentize"
+    else 
+        echo "cat"
+    fi
+}
+
+function print_documentation()
+{
+    BOLD=$(tput bold)
+    RESET=$(tput sgr0)
+    echo -e "
+A cli tool that uses the data from https://github.com/tldr-pages/tldr to show a simple way to use common cli tools.
+    
+Usage: tldr [OPTIONS] [COMMAND]
+       tldr <COMMAND>
+
+${BOLD}Arguments:${RESET}
+
+[COMMAND]
+    The command that you want to know how to use
+    
+Options:
+  -p, --platform <osx,windows,linux, bsd>
+        Specify the platform that you are looking for.
+
+  -v, --version
+        Prints version
+  -u, --update
+        Updates the TLDR page version
+  -h, --help
+        Shows this help page
+
+${BOLD}Example Usages:${RESET}
+    tldr cat: Shows the tldr page for cat
+    tldr git commit: Shows the tldr page for git commit
+    tldr --update: Updates TLDR
+
+${BOLD}Environment Variables that affect TLDR:${RESET}
+    TLDR_COMMAND: Sets the viewer you'd like to use for viewing the TLDR. glow, pygmentize and bat are good options.
+
+${BOLD}Other Information${RESET}
+    Config Location: $TLDR_CONFIG_DIR
+    "
+}
+
+initialize_if_needed
+
+# Parse Arguments
+while getopts vp:ulr-: OPT; do  # allow -a, -p with arg, -c, and -- "with arg"
+  # support long options: https://stackoverflow.com/a/28466267/519360
+  if [ "$OPT" = "-" ]; then   
+    OPT="${OPTARG%%=*}"
+    OPTARG="${OPTARG#"$OPT"}"
+    OPTARG="${OPTARG#=}"
+  fi
+
+  case "$OPT" in
+    v | version )
+        cat "$TLDR_CONFIG_DIR/version"
+        exit 0 ;;
+    p | platform )
+        OS="$OPTARG" ;;
+    u | update  )
+        update_tldr
+        exit 0 ;;
+    l | list )
+        echo "Not Implemented Yet"
+        exit 0 ;;
+    r | reset )
+        echo "Reset"
+        reset_tldr
+        exit 0 ;;
+    h | help )
+        print_documentation
+        exit 0 ;;
+    \? )
+        echo "invalid argument" >&2
+        print_documentation
+        exit 2 ;;  # bad short option (error reported via getopts)
+    * )
+        echo "Illegal option --$OPT" >&2
+        print_documentation
+        exit 2 ;;            # bad long option
+  esac
+done
+shift $((OPTIND-1))
+
+oldIFS="$IFS"
+IFS="-"
+ARGS="$*"
+IFS="$oldIFS"
+
+OS=$(get_operating_system)
+
+if [ -z "$ARGS" ]; then
+    echo "NO ARGS"
+    exit -1
+fi
+
+# Find TLDR page
+result=""
+if [ -f "$TLDR_CONFIG_DIR/$OS/$ARGS.md" ]; then
+    result=$(cat "$TLDR_CONFIG_DIR/$OS/$ARGS.md")
+elif [ -f "$TLDR_CONFIG_DIR/common/$ARGS.md" ]; then
+    result=$(cat "$TLDR_CONFIG_DIR/common/$ARGS.md")
+elif [ -f ""$TLDR_CONFIG_DIR/linux/$ARGS.md"" ]; then
+    result=$(cat "$TLDR_CONFIG_DIR/linux/$ARGS.md")
+elif [ -f "$TLDR_CONFIG_DIR/linux/$ARGS.md" ]; then
+    result=$(cat "$TLDR_CONFIG_DIR/windows/$ARGS.md")
+fi
+
+if [ -z "$result" ]; then
+    echo "Invalid Command $ARGS $result $TLDR_CONFIG_DIR"
+    return
+fi
+
+# Render output
+
+TLDR_COMMAND=$(get_command)
+echo "$result" | $TLDR_COMMAND
+
